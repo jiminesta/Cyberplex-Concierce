@@ -5,6 +5,7 @@ import { OrbitControls, RoundedBox, Text } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import * as THREE from 'three';
+import {DrinkCup,WalkingGuest} from './cyberplex-visuals';
 
 type Drink = 'Soda' | 'Icee' | 'Shake' | 'Water';
 const drinks: {name:Drink;color:string;position:[number,number,number]}[] = [
@@ -47,7 +48,7 @@ function Person({position,shirt,skin}:{position:[number,number,number];shirt:str
   {[-.18,.18].map(x=><mesh key={x} position={[x,-.32,0]}><capsuleGeometry args={[.11,.5,4,8]}/><meshStandardMaterial color="#263247"/></mesh>)}
  </group>;
 }
-function Scene({onSelect,onServe,canServe,served,active,onTake,canTake}:{onSelect:(name:Drink)=>void;onServe:()=>void;canServe:boolean;served:number;active:Drink|null;onTake:()=>void;canTake:boolean}){
+function Scene({onSelect,onServe,canServe,served,active,onTake,canTake,tray,progress}:{onSelect:(name:Drink)=>void;onServe:()=>void;canServe:boolean;served:number;active:Drink|null;onTake:()=>void;canTake:boolean;tray:Drink[];progress:number}){
  return <Canvas shadows camera={{position:[0,4.7,10],fov:48}} gl={{antialias:true}}>
   <color attach="background" args={['#101827']}/><fog attach="fog" args={['#101827',14,28]}/>
   <ambientLight intensity={1.1}/><hemisphereLight args={['#b2d6ef','#53364c',1.3]}/>
@@ -74,7 +75,9 @@ function Scene({onSelect,onServe,canServe,served,active,onTake,canTake}:{onSelec
    <RoundedBox args={[1.5,.18,.65]} radius={.07} smoothness={3}><meshStandardMaterial color={canTake?'#d3a267':'#46546b'} emissive={canTake?'#ba813e':'#000000'} emissiveIntensity={canTake?.5:0}/></RoundedBox>
    <Text position={[0,.105,.02]} rotation={[-Math.PI/2,0,0]} fontSize={.19} color='#fff2d5'>TAKE ORDER</Text>
   </group>
-  {served<customers.length&&<Person position={[2,-.1,4.3]} shirt="#c778a1" skin="#d6a481"/>}
+  {tray.map((drink,i)=><DrinkCup key={i} drink={drink} position={[-1.4+i*.42,1.01,2.17]}/>)}
+  {active&&<DrinkCup drink={active} position={[drinks.find(d=>d.name===active)!.position[0],.1,-1.22]} fill={progress/100}/>}
+  <WalkingGuest key={served} customerIndex={served} finished={served>=customers.length}/>
   <OrbitControls enablePan={false} minDistance={7} maxDistance={15} minPolarAngle={.7} maxPolarAngle={1.35} target={[0,1,0]}/>
  </Canvas>;
 }
@@ -116,7 +119,7 @@ function Preview(){
  const grade=missed===0&&waste===0?'A':missed<=1&&waste<=1?'B':missed<=2?'C':'D';
  return <div className="app">
   <header><div><strong>CYBER-PLEX 64</strong><small>THE GRAND CINEMA · CONCESSION SHIFT</small></div><span>★ {score} &nbsp; {index}/5 GUESTS</span></header>
-  <main><Scene onSelect={add} onServe={serve} canServe={canServe&&!paused} onTake={takeOrder} canTake={phase==='waiting'&&!paused&&!done} served={index} active={preparing}/></main>
+  <main><Scene onSelect={add} onServe={serve} canServe={canServe&&!paused} onTake={takeOrder} canTake={phase==='waiting'&&!paused&&!done} served={index} active={preparing} tray={tray} progress={progress}/></main>
   <section className="hud"><div className="order">
    <b>{done?'SHIFT COMPLETE · GRADE '+grade:phase==='waiting'?guest.name+' · WAITING TO ORDER':guest.name+' · '+guest.order.join(' + ')}</b>
    <p>{done?'Shift total: '+score+' points · $'+earnings+' sales · '+missed+' missed · '+waste+' wasted':message}</p>
