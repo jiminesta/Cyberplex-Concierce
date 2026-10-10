@@ -1,6 +1,7 @@
 import React, {useRef} from 'react';
 import {useFrame} from '@react-three/fiber';
 import * as THREE from 'three';
+import {Text} from '@react-three/drei';
 
 export type CupKind='Soda'|'Icee'|'Shake'|'Water';
 const colors:Record<CupKind,string>={Soda:'#bc6b77',Icee:'#55b9df',Shake:'#e5adc9',Water:'#6fcfc6'};
@@ -18,11 +19,15 @@ export function WalkingGuest({customerIndex,finished}:{customerIndex:number;fini
  const group=useRef<THREE.Group>(null);
  useFrame((state,delta)=>{
   if(!group.current)return;
-  const target=finished?8:2.1;
+  const target=finished?6:1.9;
   group.current.position.x=THREE.MathUtils.damp(group.current.position.x,target,2.2,delta);
   group.current.position.y=-.1+Math.sin(state.clock.elapsedTime*3)*.025;
  });
- return <group key={customerIndex} ref={group} position={[8,-.1,4.3]}>
+ return <group key={customerIndex} ref={group} position={[2.9,-.1,4.0]}>
+  {!finished&&<group position={[0,2.18,0]}>
+   <mesh position={[0,0,0]}><boxGeometry args={[1.5,.48,.06]}/><meshBasicMaterial color="#14283a"/></mesh>
+   <Text position={[0,0,.045]} fontSize={.19} color="#fff3cb" anchorX="center" anchorY="middle">{['NOVA','PIXEL','LUNA','ZIGGY','COSMO'][customerIndex%5]}</Text>
+  </group>}
   <mesh position={[0,.45,0]}><capsuleGeometry args={[.31,.75,4,10]}/><meshStandardMaterial color={['#c778a1','#70abc8','#d6a36b','#81b68d','#ac8bc7'][customerIndex%5]}/></mesh>
   <mesh position={[0,1.45,0]}><sphereGeometry args={[.31,14,12]}/><meshStandardMaterial color={['#d6a481','#ae795c','#9a654e','#e2bb91','#a77563'][customerIndex%5]}/></mesh>
   <mesh position={[0,1.69,0]} scale={[1,.38,1]}><sphereGeometry args={[.32,12,10]}/><meshStandardMaterial color="#292331"/></mesh>
