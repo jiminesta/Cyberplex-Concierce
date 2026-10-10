@@ -47,7 +47,7 @@ function Person({position,shirt,skin}:{position:[number,number,number];shirt:str
   {[-.18,.18].map(x=><mesh key={x} position={[x,-.32,0]}><capsuleGeometry args={[.11,.5,4,8]}/><meshStandardMaterial color="#263247"/></mesh>)}
  </group>;
 }
-function Scene({onSelect,onServe,canServe,served,active}:{onSelect:(name:Drink)=>void;onServe:()=>void;canServe:boolean;served:number;active:Drink|null}){
+function Scene({onSelect,onServe,canServe,served,active,onTake,canTake}:{onSelect:(name:Drink)=>void;onServe:()=>void;canServe:boolean;served:number;active:Drink|null;onTake:()=>void;canTake:boolean}){
  return <Canvas shadows camera={{position:[0,4.7,10],fov:48}} gl={{antialias:true}}>
   <color attach="background" args={['#101827']}/><fog attach="fog" args={['#101827',14,28]}/>
   <ambientLight intensity={1.1}/><hemisphereLight args={['#b2d6ef','#53364c',1.3]}/>
@@ -70,35 +70,67 @@ function Scene({onSelect,onServe,canServe,served,active}:{onSelect:(name:Drink)=
    <RoundedBox args={[1.38,.18,.65]} radius={.07} smoothness={3}><meshStandardMaterial color={canServe?'#399f82':'#46546b'} emissive={canServe?'#2cc89d':'#000000'} emissiveIntensity={canServe?.65:0}/></RoundedBox>
    <Text position={[0,.105,.02]} rotation={[-Math.PI/2,0,0]} fontSize={.22} color='#fff2d5'>SERVE</Text>
   </group>
+  <group position={[-2.8,1.04,2.28]} onClick={e=>{e.stopPropagation();if(canTake)onTake();}}>
+   <RoundedBox args={[1.5,.18,.65]} radius={.07} smoothness={3}><meshStandardMaterial color={canTake?'#d3a267':'#46546b'} emissive={canTake?'#ba813e':'#000000'} emissiveIntensity={canTake?.5:0}/></RoundedBox>
+   <Text position={[0,.105,.02]} rotation={[-Math.PI/2,0,0]} fontSize={.19} color='#fff2d5'>TAKE ORDER</Text>
+  </group>
   {served<customers.length&&<Person position={[2,-.1,4.3]} shirt="#c778a1" skin="#d6a481"/>}
   <OrbitControls enablePan={false} minDistance={7} maxDistance={15} minPolarAngle={.7} maxPolarAngle={1.35} target={[0,1,0]}/>
  </Canvas>;
 }
+type Phase = 'waiting'|'preparing'|'complete';
+const durations:Record<Drink,number>={Soda:1400,Icee:2200,Shake:3000,Water:900};
+const initialStock:Record<Drink,number>={Soda:5,Icee:4,Shake:3,Water:5};
 function Preview(){
- const [served,setServed]=useState(0);
+ const [index,setIndex]=useState(0);
+ const [phase,setPhase]=useState<Phase>('waiting');
  const [tray,setTray]=useState<Drink[]>([]);
+ const [stock,setStock]=useState<Record<Drink,number>>({...initialStock});
  const [score,setScore]=useState(0);
- const [message,setMessage]=useState('Tap DISPENSE on a 3D machine, then SERVE on the countertop.');
+ const [earnings,setEarnings]=useState(0);
+ const [message,setMessage]=useState('Tap TAKE ORDER on the counter to greet the customer.');
  const [preparing,setPreparing]=useState<Drink|null>(null);
  const [progress,setProgress]=useState(0);
  const [patience,setPatience]=useState(100);
  const [combo,setCombo]=useState(0);
  const [missed,setMissed]=useState(0);
+ const [waste,setWaste]=useState(0);
  const [paused,setPaused]=useState(false);
  const [sound,setSound]=useState(true);
- const playTone=(freq:number)=>{if(!sound)return;try{const C=(window as any).AudioContext||(window as any).webkitAudioContext;if(!C)return;const ctx=new C();const o=ctx.createOscillator();const g=ctx.createGain();o.type='triangle';o.frequency.value=freq;g.gain.setValueAtTime(.055,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.16);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+.17);o.onended=()=>void ctx.close();}catch{}};
- useEffect(()=>{if(paused||served>=customers.length)return;const id=window.setInterval(()=>setPatience(p=>Math.max(0,p-1)),600);return()=>window.clearInterval(id)},[paused,served]);
- useEffect(()=>{if(!preparing||paused)return;const id=window.setInterval(()=>setProgress(p=>Math.min(100,p+10)),150);return()=>window.clearInterval(id)},[preparing,paused]);
- useEffect(()=>{if(preparing&&progress>=100){setTray(t=>[...t,preparing]);setMessage(preparing+' ready for pickup!');playTone(720);setPreparing(null);setProgress(0)}},[preparing,progress]);
- useEffect(()=>{if(patience!==0||served>=customers.length||paused)return;setMissed(m=>m+1);setCombo(0);setServed(s=>s+1);setPatience(100);setMessage('Customer left! Next guest is waiting.');playTone(180)},[patience,served,paused]);
- const guest=customers[served];
- const add=(drink:Drink)=>{if(preparing||paused||!guest)return;setPreparing(drink);setProgress(0);setMessage('Dispensing '+drink+'…');playTone(430);};
- const canServe=!!guest&&guest.order.every((d,i)=>tray.filter(x=>x===d).length>=guest.order.filter(x=>x===d).length);
- const serve=()=>{if(!guest||!canServe)return;const left=[...tray];guest.order.forEach(d=>left.splice(left.indexOf(d),1));setTray(left);setScore(s=>s+100+Math.round(patience)+combo*25);setCombo(c=>c+1);setPatience(100);setServed(s=>s+1);playTone(960);setMessage('Order served! Combo bonus earned.');};
+ const guest=customers[index];
+ const done=index>=customers.length;
+ const playTone=(freq:number)=>{if(!sound)return;try{const C=(window as any).AudioContext||(window as any).webkitAudioContext;if(!C)return;const ctx=new C();const o=ctx.createOscillator();const g=ctx.createGain();o.type='triangle';o.frequency.value=freq;g.gain.setValueAtTime(.045,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.14);o.connect(g).connect(ctx.destination);o.start();o.stop(ctx.currentTime+.15);o.onended=()=>void ctx.close();}catch{}};
+ const nextCustomer=(miss:boolean)=>{if(miss){setMissed(v=>v+1);setCombo(0);setMessage('Customer left before service. Next guest approaching.');playTone(170)}else{setMessage('Order delivered! Next guest is waiting.');playTone(900)}setIndex(v=>v+1);setPhase('waiting');setPatience(100);setPreparing(null);setProgress(0);setTray([])};
+ useEffect(()=>{if(paused||done||phase!=='preparing')return;const id=window.setInterval(()=>setPatience(v=>Math.max(0,v-1)),550);return()=>window.clearInterval(id)},[paused,done,phase]);
+ useEffect(()=>{if(paused||!preparing)return;const id=window.setInterval(()=>setProgress(v=>Math.min(100,v+100*100/durations[preparing])),100);return()=>window.clearInterval(id)},[paused,preparing]);
+ useEffect(()=>{if(!preparing||progress<100)return;setTray(t=>[...t,preparing]);setMessage(preparing+' is ready. Complete the ticket and press SERVE.');playTone(710);setPreparing(null);setProgress(0)},[preparing,progress]);
+ useEffect(()=>{if(patience!==0||phase!=='preparing'||done||paused)return;nextCustomer(true)},[patience,phase,done,paused]);
+ const takeOrder=()=>{if(!guest||paused||phase!=='waiting')return;setPhase('preparing');setMessage('Ticket received: '+guest.order.join(' + ')+'. Prepare each item.');playTone(500)};
+ const needed=(d:Drink)=>guest?guest.order.filter(x=>x===d).length:0;
+ const add=(d:Drink)=>{if(paused||done||phase!=='preparing'||preparing)return;const ready=tray.filter(x=>x===d).length;if(ready>=needed(d)){setMessage('Not on the remaining ticket: '+d+'. Avoid unnecessary waste.');return}if(stock[d]<=0){setMessage(d+' is out of stock. Use RESTOCK below.');return}setStock(v=>({...v,[d]:v[d]-1}));setPreparing(d);setProgress(0);setMessage('Dispensing '+d+'…');playTone(430)};
+ const canServe=!!guest&&phase==='preparing'&&!preparing&&guest.order.every(d=>tray.filter(x=>x===d).length>=needed(d));
+ const serve=()=>{if(!canServe||paused||!guest)return;const tip=Math.round(patience*.12);const bonus=combo*15;setScore(s=>s+100+tip+bonus);setEarnings(v=>v+guest.order.length*4+tip);setCombo(v=>v+1);nextCustomer(false)};
+ const restock=()=>{if(paused||done)return;setStock({...initialStock});setScore(v=>Math.max(0,v-25));setMessage('Supplies replenished. Restocking costs 25 points.');playTone(330)};
+ const discard=()=>{if(paused||!tray.length)return;setWaste(v=>v+tray.length);setScore(v=>Math.max(0,v-tray.length*10));setTray([]);setMessage('Pickup tray cleared. Waste penalty: 10 points per item.')};
+ const restart=()=>{setIndex(0);setPhase('waiting');setTray([]);setStock({...initialStock});setScore(0);setEarnings(0);setMessage('New shift! Tap TAKE ORDER on the counter.');setPreparing(null);setProgress(0);setPatience(100);setCombo(0);setMissed(0);setWaste(0);setPaused(false)};
+ const grade=missed===0&&waste===0?'A':missed<=1&&waste<=1?'B':missed<=2?'C':'D';
  return <div className="app">
-  <header><div><strong>CYBER-PLEX 64</strong><small>THE GRAND CINEMA · 3D ARCADE SHIFT</small></div><span>★ {score} &nbsp; {served}/5 GUESTS</span></header>
-  <main><Scene onSelect={add} onServe={serve} canServe={canServe&&!paused} served={served} active={preparing}/></main>
-  <section className="hud"><div className="order"><b>{guest?guest.name+' · '+guest.order.join(' + '):'SHIFT COMPLETE'}</b><p>{message}</p><p>Pickup tray: {tray.length?tray.join(', '):'Empty'} · COMBO x{combo} · MISSED {missed}</p><div className='patience'><span style={{width:patience+'%',background:patience>40?'#72d5c0':'#f29c81'}}/></div>{preparing&&<p className='progress'>Dispensing {preparing}: {progress}% <span style={{width:progress+'%'}}/></p>}</div><div className="actions"><button onClick={()=>setPaused(p=>!p)}>{paused?'RESUME':'PAUSE'}</button><button onClick={()=>setSound(v=>!v)}>{sound?'SOUND ON':'MUTED'}</button><button onClick={()=>{setServed(0);setTray([]);setScore(0);setCombo(0);setMissed(0);setPatience(100);setPreparing(null);setProgress(0);setPaused(false);setMessage('New shift started.');}}>RESTART</button></div></section>
- </div>;
+  <header><div><strong>CYBER-PLEX 64</strong><small>THE GRAND CINEMA · CONCESSION SHIFT</small></div><span>★ {score} &nbsp; {index}/5 GUESTS</span></header>
+  <main><Scene onSelect={add} onServe={serve} canServe={canServe&&!paused} onTake={takeOrder} canTake={phase==='waiting'&&!paused&&!done} served={index} active={preparing}/></main>
+  <section className="hud"><div className="order">
+   <b>{done?'SHIFT COMPLETE · GRADE '+grade:phase==='waiting'?guest.name+' · WAITING TO ORDER':guest.name+' · '+guest.order.join(' + ')}</b>
+   <p>{done?'Shift total: '+score+' points · $'+earnings+' sales · '+missed+' missed · '+waste+' wasted':message}</p>
+   <p>TRAY: {tray.length?tray.join(', '):'Empty'} · STOCK: {drinks.map(d=>d.name+' '+stock[d.name]).join(' / ')}</p>
+   <p>COMBO x{combo} · MISSED {missed} · WASTE {waste} · SALES ${earnings}</p>
+   <div className='patience'><span style={{width:patience+'%',background:patience>40?'#72d5c0':'#f29c81'}}/></div>
+   {preparing&&<p className='progress'>Dispensing {preparing}: {Math.round(progress)}% <span style={{width:progress+'%'}}/></p>}
+  </div><div className="actions">
+   <button onClick={restock} disabled={paused||done}>RESTOCK (-25)</button>
+   <button onClick={discard} disabled={paused||!tray.length}>CLEAR TRAY</button>
+   <button onClick={()=>setPaused(v=>!v)}>{paused?'RESUME':'PAUSE'}</button>
+   <button onClick={()=>setSound(v=>!v)}>{sound?'SOUND ON':'MUTED'}</button>
+   <button onClick={restart}>NEW SHIFT</button>
+  </div></section>
+ </div>
 }
 createRoot(document.getElementById('root')!).render(<Preview/>);
