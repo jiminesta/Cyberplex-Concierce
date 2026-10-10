@@ -1,0 +1,17 @@
+{
+  "name": "Cyber-Plex Concierge",
+  "short_name": "Cyber-Plex",
+  "description": "Welcome to the retro-future! Manage a bustling movie theatre lobby in this fast-paced simulation. Serve cyber-punks, check holo-tickets, and sling futuristic concessions to become the ultimate Cyber-Plex Concierge.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0221",
+  "theme_color": "#0d0221"
+}
