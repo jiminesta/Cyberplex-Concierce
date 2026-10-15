@@ -97,6 +97,7 @@ export interface FallingSnack {
 }
 
 export interface GameState {
+  guestSpawnElapsed: number;
   score: number;
   presaleTarget: number;
   presaleHelped: number;

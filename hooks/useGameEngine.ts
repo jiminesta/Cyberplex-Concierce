@@ -1,6 +1,5 @@
 import { useReducer, useEffect, useCallback, useRef } from 'react';
 import { GameState, Guest, Item, GuestState, Difficulty, DifficultySettings, FallingSnack } from '../types';
-import { GoogleGenAI } from "@google/genai";
 import { 
     GAME_TICK_MS,
     MAX_GUESTS,
@@ -56,7 +55,8 @@ type Action =
   | { type: 'SET_POSTER', payload: string };
 
 
-const initialState: GameState = {
+export const initialState: GameState = {
+  guestSpawnElapsed: 0,
   score: 0,
   presaleTarget: 0,
   presaleHelped: 0,
@@ -88,6 +88,7 @@ const initialState: GameState = {
 };
 
 const newShiftState = {
+  guestSpawnElapsed: 0,
   presaleTarget: 0,
   presaleHelped: 0,
   gameStarted: false,
@@ -262,12 +263,12 @@ const moveGuestToHolding = (guestToMove: Guest, allGuests: Guest[], newDialog?: 
     return { ...guestToMove, patience: Math.max(0, guestToMove.patience - 10), dialog: "Crowded! I'll hang here." }; 
 };
 
-const gameReducer = (state: GameState, action: Action): GameState => {
+export const gameReducer = (state: GameState, action: Action): GameState => {
   switch (action.type) {
     case 'START_GAME': {
       const difficulty = getDifficultyForLevel(state.level);
       const settings = DIFFICULTY_SETTINGS[difficulty];
-      return {
+      return gameReducer({
         ...initialState,
         level: state.level,
         shift: state.shift,
@@ -278,7 +279,7 @@ const gameReducer = (state: GameState, action: Action): GameState => {
         presaleTarget: settings.PRESALE_TARGET,
         presaleGuestsToSpawn: settings.PRESALE_TARGET,
         guests: [],
-      };
+      }, { type: 'ADD_GUEST' });
     }
     
     case 'ADVANCE_AND_START_SHIFT': {
@@ -287,7 +288,7 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       const nextLevel = isNewLevel ? state.level + 1 : state.level;
       const difficulty = getDifficultyForLevel(nextLevel);
       const settings = DIFFICULTY_SETTINGS[difficulty];
-      return {
+      return gameReducer({
         ...state,
         ...newShiftState,
         level: nextLevel,
@@ -301,7 +302,7 @@ const gameReducer = (state: GameState, action: Action): GameState => {
         presaleTarget: settings.PRESALE_TARGET,
         presaleGuestsToSpawn: settings.PRESALE_TARGET,
         guests: [],
-      };
+      }, { type: 'ADD_GUEST' });
     }
 
     case 'RESET': return initialState;
@@ -377,8 +378,11 @@ const gameReducer = (state: GameState, action: Action): GameState => {
       });
       const finalGuests = updateQueuePositions(guestsWithUpdatedPositions);
 
-      return {
+      const spawnRate = state.difficultySettings.GUEST_SPAWN_RATE_MS * (newRushHourRemaining > 0 ? .5 : 1);
+      const elapsed = state.guestSpawnElapsed + GAME_TICK_MS;
+      const nextState: GameState = {
         ...state,
+        guestSpawnElapsed: elapsed >= spawnRate ? elapsed % spawnRate : elapsed,
         score: newScore,
         writeUps: newWriteUps,
         endOfShiftPenalty,
@@ -397,9 +401,11 @@ const gameReducer = (state: GameState, action: Action): GameState => {
         }),
       };
     
+      return elapsed >= spawnRate && !nextState.isGameOver ? gameReducer(nextState, {type: 'ADD_GUEST'}) : nextState;
+
     case 'ADD_GUEST': {
-      if (state.guests.length >= MAX_GUESTS || !state.difficultySettings) return state;
-      const spawnPresale = state.presaleGuestsToSpawn > 0 && Math.random() < 0.4;
+      if (!state.gameStarted || state.isGameOver || state.guests.length >= MAX_GUESTS || !state.difficultySettings) return state;
+      const spawnPresale = state.presaleGuestsToSpawn > 0 && (state.guests.length === 0 || Math.random() < 0.4);
       const newGuest = createGuest(spawnPresale, state.difficultySettings.PATIENCE_TOTAL);
       const spot = findAndAssignSpot([...state.guests, newGuest]);
       if (!spot) return state;
@@ -553,12 +559,15 @@ const gameReducer = (state: GameState, action: Action): GameState => {
 
 export const useGameEngine = () => {
   const [gameState, dispatch] = useReducer(gameReducer, initialState);
-  const timers = useRef<number[]>([]).current;
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]).current;
 
   const generateShiftPoster = async () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) return; // Optional artwork never blocks local gameplay.
     const movie = MOVIES[Math.floor(Math.random() * MOVIES.length)];
     try {
+        const {GoogleGenAI} = await import('@google/genai');
+        const ai = new GoogleGenAI({apiKey});
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: `A futuristic, high-detail holographic movie poster for a film titled "${movie}". Cyberpunk neon aesthetic, 80s retro-future style, cinematic lighting.` }] },
@@ -591,14 +600,13 @@ export const useGameEngine = () => {
 
     const tickTimer = setInterval(() => dispatch({ type: 'TICK' }), GAME_TICK_MS);
     
-    const guestSpawnInterval = gameState.rushHourRemaining > 0 ? gameState.difficultySettings.GUEST_SPAWN_RATE_MS * 0.5 : gameState.difficultySettings.GUEST_SPAWN_RATE_MS;
-    const guestTimer = setInterval(() => dispatch({ type: 'ADD_GUEST' }), guestSpawnInterval);
+    // Customer cadence advances inside TICK; countdown changes cannot reset it.
     const snackTimer = setInterval(() => dispatch({ type: 'ADD_SNACK' }), SNACK_SPAWN_RATE_MS);
     
-    timers.push(tickTimer, guestTimer, snackTimer);
+    timers.push(tickTimer, snackTimer);
 
     return () => { timers.forEach(t => { clearInterval(t); clearTimeout(t); }); timers.length = 0; };
-  }, [gameState.gameStarted, gameState.isGameOver, gameState.difficultySettings, gameState.rushHourRemaining, timers]);
+  }, [gameState.gameStarted, gameState.isGameOver, gameState.difficultySettings, timers]);
 
   const internalDispatch = useCallback((action: Action) => {
     if (action.type === 'PREPARE_ITEM') {
